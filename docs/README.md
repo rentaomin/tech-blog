@@ -1,10 +1,10 @@
 ---
 home: true
 title: 主页
-heroImage: https://vuejs.press/images/hero.png
+heroImage: /images/arch-tech.jpg
 actions:
   - text: 快速开始
-    link: /getting-started.html
+    link: /get-started.html
     type: primary
   - text: 介绍
     link: https://vuejs.press/guide/introduction.html
