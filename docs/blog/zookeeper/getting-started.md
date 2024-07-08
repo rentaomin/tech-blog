@@ -27,7 +27,7 @@
 15. [Zookeeper集群的应用场景](Zookeeper集群的应用场景.md)
 
 
-## 其他资源
+## 参考资料
 
 - [Zookeeper 官方文档](https://zookeeper.apache.org/documentation.html)
 - [Zookeeper API 文档](https://zookeeper.apache.org/doc/r3.7.0/api/index.html)

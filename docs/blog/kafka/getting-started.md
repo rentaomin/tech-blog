@@ -41,7 +41,7 @@
 29.  [Kafka-集群如何处理生产者和消费者处理消息速率差异问题](Kafka-集群如何处理生产者和消费者处理消息速率差异问题.md)
 30.  [Kafka-集群生产性能调优业务场景](Kafka-集群生产性能调优业务场景.md)
 
-## 其他资源
+## 参考资料
 
 - [Kafka 官方文档](https://kafka.apache.org/documentation/)
 - [Kafka Github](https://github.com/apache/kafka)
