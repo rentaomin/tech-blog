@@ -7,7 +7,7 @@ tag:
 sticky: true
 excerpt: <p>Kafka 集群原理设计分析</p>
 ---
-# kafka 集群原理设计（四）之 Controller 选举和 Partition 分配
+# kafa集群原理设计（四）之 Controller 选举和 Partition 分配
 
 Kafka 集群中的 Controller 选举和 Partition 分配涉及 ZooKeeper 和 Kafka 两部分的协作。
 ZooKeeper 负责协调和维护元数据，而 Kafka 负责具体的实现和业务逻辑。下面详细介绍启动过程

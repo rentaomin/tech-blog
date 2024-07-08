@@ -7,7 +7,7 @@ tag:
 sticky: true
 excerpt: <p>Kafka 集群原理设计分析</p>
 ---
-# kafka 的单机、集群部署安装
+# kafka的单机、集群部署安装
 
 Kafka 的部署可以分为单机部署和集群部署。以下是详细的单机和集群部署步骤。
 

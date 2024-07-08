@@ -1,6 +1,5 @@
 ---
 date: 2021-07-07
-author: 将臣三代
 category:
   - Kafka
 tag:
@@ -8,22 +7,11 @@ tag:
 sticky: true
 excerpt: <p>Kafka 集群原理设计分析</p>
 ---
-[[toc]]
 #  Kafka Topic 之 Zookeeper 数据内容介绍
 ```shell
 [zk: 192.168.0.200:2181(CONNECTED) 13] get /brokers/topics/test_cluster
 
-{
-	"partitions": {
-		"0": [0, 2, 3],
-		"1": [2, 3, 0],
-		"2": [3, 0, 2]
-	},
-	"topic_id": "aSFJVxF7SIaTCptmWn_GgA",
-	"adding_replicas": {},
-	"removing_replicas": {},
-	"version": 3
-}
+{"partitions":{"0":[0,2,3],"1":[2,3,0],"2":[3,0,2]},"topic_id":"aSFJVxF7SIaTCptmWn_GgA","adding_replicas":{},"removing_replicas":{},"version":3}；
 ```
 从提供的 ZooKeeper 输出中可以看出 Kafka Topic `test_cluster` 的分区和副本分布情况。以下是对输出内容
 的详细解释：
@@ -115,8 +103,7 @@ Kafka 采用一种叫做“交错副本分配”（interleaved replica assignmen
 
 ```java
 // ReplicaFetcherThread.scala
-class ReplicaFetcherThread(replicaId: Int, leaderId: Int, partition: TopicPartition) 
-        extends AbstractFetcherThread(replicaId, leaderId) {
+class ReplicaFetcherThread(replicaId: Int, leaderId: Int, partition: TopicPartition) extends AbstractFetcherThread(replicaId, leaderId) {
     override def fetch(fetchRequest: FetchRequest.Builder): Map[TopicPartition, FetchDataInfo] = {
         val fetchResponse = leaderBroker.fetch(fetchRequest)
         fetchResponse.data.asScala.map { case (tp, data) =>

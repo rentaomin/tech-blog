@@ -4,7 +4,7 @@ title: 主页
 heroImage: /images/arch-tech.jpg
 actions:
   - text: 快速开始
-    link: /get-started.html
+    link: /geting-started.html
     type: primary
   - text: 介绍
     link: https://vuejs.press/guide/introduction.html
