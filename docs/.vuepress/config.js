@@ -6,6 +6,7 @@ import { webpackBundler } from '@vuepress/bundler-webpack'
 export default defineUserConfig({
   lang: 'zh-CN',
   title: '架构师之路',
+  base: '/tech-blog/',
   description: '记录并分享分布式系统与大数据处理技术的深入理解与实践经验。',
 
   theme: defaultTheme({
