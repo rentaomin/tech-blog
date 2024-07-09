@@ -4,6 +4,9 @@
   "description": "A VuePress project",
   "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "@rentaomin:registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
     "docs:build": "vuepress build docs",
     "docs:clean-dev": "vuepress dev docs --clean-cache",
