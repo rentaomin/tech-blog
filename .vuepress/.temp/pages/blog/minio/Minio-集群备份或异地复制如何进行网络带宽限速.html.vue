@@ -1,0 +1,99 @@
+<template><div><h1 id="minio-集群备份或异地复制如何进行网络带宽限速" tabindex="-1"><a class="header-anchor" href="#minio-集群备份或异地复制如何进行网络带宽限速"><span>Minio 集群备份或异地复制如何进行网络带宽限速？</span></a></h1>
+<p>在 MinIO 集群的备份和异地复制过程中，控制网络占用以不影响业务的正常使用是一个关键问题。
+以下是几种策略和方法，可以帮助你实现这一目标：</p>
+<h3 id="_1-限制带宽" tabindex="-1"><a class="header-anchor" href="#_1-限制带宽"><span>1. 限制带宽</span></a></h3>
+<h4 id="使用-mc-命令行工具限制带宽" tabindex="-1"><a class="header-anchor" href="#使用-mc-命令行工具限制带宽"><span>使用 <code v-pre>mc</code> 命令行工具限制带宽</span></a></h4>
+<p><code v-pre>mc</code> 命令行工具支持限制带宽，可以在备份和复制过程中使用 <code v-pre>--bandwidth</code> 参数限制网络带宽。</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token function">mc</span> mirror <span class="token parameter variable">--watch</span> <span class="token parameter variable">--bandwidth</span> <span class="token string">"10MB/s"</span> sourceMinIO/ targetMinIO/</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div><h4 id="使用-linux-tc-命令限制带宽" tabindex="-1"><a class="header-anchor" href="#使用-linux-tc-命令限制带宽"><span>使用 Linux tc 命令限制带宽</span></a></h4>
+<p>Linux 提供了 <code v-pre>tc</code>（traffic control）命令，可以用来限制网络接口的带宽。</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token comment"># 为网络接口 eth0 设置带宽限制</span></span>
+<span class="line"><span class="token function">sudo</span> tc qdisc <span class="token function">add</span> dev eth0 root tbf rate 10mbit burst 32kbit latency 400ms</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_2-分批次备份" tabindex="-1"><a class="header-anchor" href="#_2-分批次备份"><span>2. 分批次备份</span></a></h3>
+<p>将大规模的数据备份和复制分批次进行，以减少对网络的瞬时压力。</p>
+<h4 id="分批次备份脚本" tabindex="-1"><a class="header-anchor" href="#分批次备份脚本"><span>分批次备份脚本</span></a></h4>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token shebang important">#!/bin/bash</span></span>
+<span class="line"></span>
+<span class="line"><span class="token comment"># 获取所有 bucket 列表</span></span>
+<span class="line"><span class="token assign-left variable">buckets</span><span class="token operator">=</span><span class="token variable"><span class="token variable">$(</span><span class="token function">mc</span> <span class="token function">ls</span> sourceMinIO <span class="token operator">|</span> <span class="token function">awk</span> <span class="token string">'{print $5}'</span><span class="token variable">)</span></span></span>
+<span class="line"></span>
+<span class="line"><span class="token comment"># 分批次备份每个 bucket</span></span>
+<span class="line"><span class="token keyword">for</span> <span class="token for-or-select variable">bucket</span> <span class="token keyword">in</span> <span class="token variable">$buckets</span><span class="token punctuation">;</span> <span class="token keyword">do</span></span>
+<span class="line">    <span class="token builtin class-name">echo</span> <span class="token string">"Starting backup for bucket: <span class="token variable">$bucket</span>"</span></span>
+<span class="line">    <span class="token function">mc</span> mirror <span class="token parameter variable">--watch</span> <span class="token parameter variable">--bandwidth</span> <span class="token string">"10MB/s"</span> sourceMinIO/<span class="token variable">$bucket</span> targetMinIO/<span class="token variable">$bucket</span></span>
+<span class="line">    <span class="token builtin class-name">echo</span> <span class="token string">"Backup completed for bucket: <span class="token variable">$bucket</span>"</span></span>
+<span class="line">    <span class="token function">sleep</span> <span class="token number">10</span> <span class="token comment"># 等待时间，减少瞬时网络负载</span></span>
+<span class="line"><span class="token keyword">done</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_3-备份和复制的时间窗口" tabindex="-1"><a class="header-anchor" href="#_3-备份和复制的时间窗口"><span>3. 备份和复制的时间窗口</span></a></h3>
+<p>设置备份和复制的时间窗口，在业务低峰期进行，避免对高峰期的业务造成影响。</p>
+<h4 id="使用-cron-定时任务设置时间窗口" tabindex="-1"><a class="header-anchor" href="#使用-cron-定时任务设置时间窗口"><span>使用 cron 定时任务设置时间窗口</span></a></h4>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token function">crontab</span> <span class="token parameter variable">-e</span></span>
+<span class="line"></span>
+<span class="line"><span class="token comment"># 添加以下行以在每天凌晨 2 点进行备份</span></span>
+<span class="line"><span class="token number">0</span> <span class="token number">2</span> * * * /path/to/backup_script.sh <span class="token operator">>></span> /path/to/backup_log.txt <span class="token operator"><span class="token file-descriptor important">2</span>></span><span class="token file-descriptor important">&amp;1</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_4-使用异步复制" tabindex="-1"><a class="header-anchor" href="#_4-使用异步复制"><span>4. 使用异步复制</span></a></h3>
+<p>在异地复制中，使用异步复制以减少对实时业务的影响。异步复制不会在数据写入主存储时阻塞操作，而是在后台进行复制。</p>
+<h4 id="配置异步复制" tabindex="-1"><a class="header-anchor" href="#配置异步复制"><span>配置异步复制</span></a></h4>
+<p>MinIO 默认支持异步复制，可以在配置中直接使用异步复制。</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token function">mc</span> replicate <span class="token function">add</span> <span class="token parameter variable">--priority</span> <span class="token number">1</span> <span class="token parameter variable">--schedule</span> <span class="token string">"0 2 * * *"</span> sourceMinIO/my-bucket --remote-bucket </span>
+<span class="line">my-bucket --remote-target targetMinIO</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_5-网络质量监控和调整" tabindex="-1"><a class="header-anchor" href="#_5-网络质量监控和调整"><span>5. 网络质量监控和调整</span></a></h3>
+<p>监控网络的使用情况，并根据业务流量动态调整备份和复制的带宽限制。</p>
+<h4 id="使用-nload-监控网络流量" tabindex="-1"><a class="header-anchor" href="#使用-nload-监控网络流量"><span>使用 <code v-pre>nload</code> 监控网络流量</span></a></h4>
+<p><code v-pre>nload</code> 是一个实时网络流量监控工具，可以帮助你监控网络使用情况。</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token function">sudo</span> <span class="token function">apt-get</span> <span class="token function">install</span> nload</span>
+<span class="line">nload</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div></div></div><h4 id="动态调整带宽限制脚本" tabindex="-1"><a class="header-anchor" href="#动态调整带宽限制脚本"><span>动态调整带宽限制脚本</span></a></h4>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token shebang important">#!/bin/bash</span></span>
+<span class="line"></span>
+<span class="line"><span class="token assign-left variable">current_bandwidth</span><span class="token operator">=</span><span class="token string">"10MB/s"</span></span>
+<span class="line"></span>
+<span class="line"><span class="token keyword">while</span> <span class="token boolean">true</span><span class="token punctuation">;</span> <span class="token keyword">do</span></span>
+<span class="line">    <span class="token comment"># 获取当前网络使用情况</span></span>
+<span class="line">    <span class="token assign-left variable">network_usage</span><span class="token operator">=</span><span class="token variable"><span class="token variable">$(</span>nload <span class="token parameter variable">-m</span> eth0 <span class="token parameter variable">-t</span> <span class="token number">1000</span> <span class="token operator">|</span> <span class="token function">grep</span> <span class="token string">"Curr:"</span> <span class="token operator">|</span> <span class="token function">awk</span> <span class="token string">'{print $2}'</span><span class="token variable">)</span></span></span>
+<span class="line">    </span>
+<span class="line">    <span class="token comment"># 根据网络使用情况动态调整带宽限制</span></span>
+<span class="line">    <span class="token keyword">if</span> <span class="token punctuation">[</span><span class="token punctuation">[</span> <span class="token variable">$network_usage</span> <span class="token parameter variable">-gt</span> <span class="token number">80</span> <span class="token punctuation">]</span><span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token keyword">then</span></span>
+<span class="line">        <span class="token assign-left variable">current_bandwidth</span><span class="token operator">=</span><span class="token string">"5MB/s"</span></span>
+<span class="line">    <span class="token keyword">else</span></span>
+<span class="line">        <span class="token assign-left variable">current_bandwidth</span><span class="token operator">=</span><span class="token string">"10MB/s"</span></span>
+<span class="line">    <span class="token keyword">fi</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token comment"># 更新 mc 的带宽限制</span></span>
+<span class="line">    <span class="token function">mc</span> mirror <span class="token parameter variable">--watch</span> <span class="token parameter variable">--bandwidth</span> <span class="token variable">$current_bandwidth</span> sourceMinIO/ targetMinIO/</span>
+<span class="line">    </span>
+<span class="line">    <span class="token comment"># 休眠一段时间再检查</span></span>
+<span class="line">    <span class="token function">sleep</span> <span class="token number">60</span></span>
+<span class="line"><span class="token keyword">done</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_6-使用-quality-of-service-qos" tabindex="-1"><a class="header-anchor" href="#_6-使用-quality-of-service-qos"><span>6. 使用 Quality of Service (QoS)</span></a></h3>
+<p>配置网络设备和操作系统的 QoS 策略，保证关键业务流量的优先级。</p>
+<h4 id="配置-linux-tc-和-iptables-进行-qos" tabindex="-1"><a class="header-anchor" href="#配置-linux-tc-和-iptables-进行-qos"><span>配置 Linux tc 和 iptables 进行 QoS</span></a></h4>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token comment"># 定义流量控制规则</span></span>
+<span class="line"><span class="token function">sudo</span> tc qdisc <span class="token function">add</span> dev eth0 root handle <span class="token number">1</span>: htb default <span class="token number">12</span></span>
+<span class="line"><span class="token function">sudo</span> tc class <span class="token function">add</span> dev eth0 parent <span class="token number">1</span>:1 classid <span class="token number">1</span>:12 htb rate 100mbit</span>
+<span class="line"></span>
+<span class="line"><span class="token comment"># 定义业务流量优先级</span></span>
+<span class="line"><span class="token function">sudo</span> iptables <span class="token parameter variable">-t</span> mangle <span class="token parameter variable">-A</span> POSTROUTING <span class="token parameter variable">-p</span> tcp <span class="token parameter variable">--sport</span> <span class="token number">9000</span> <span class="token parameter variable">-j</span> CLASSIFY --set-class <span class="token number">1</span>:10</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_7-异地复制策略调整" tabindex="-1"><a class="header-anchor" href="#_7-异地复制策略调整"><span>7. 异地复制策略调整</span></a></h3>
+<p>调整异地复制策略，例如只在业务低峰期进行数据复制，或者在复制时进行批量处理。</p>
+<h4 id="设置定时异地复制" tabindex="-1"><a class="header-anchor" href="#设置定时异地复制"><span>设置定时异地复制</span></a></h4>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token function">mc</span> replicate <span class="token function">add</span> <span class="token parameter variable">--schedule</span> <span class="token string">"0 2 * * *"</span> sourceMinIO/my-bucket --remote-bucket my-bucket </span>
+<span class="line">--remote-target targetMinIO</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_8-多路径传输" tabindex="-1"><a class="header-anchor" href="#_8-多路径传输"><span>8. 多路径传输</span></a></h3>
+<p>在网络硬件和配置支持的情况下，使用多路径传输（Multipath TCP），提高网络利用率并减少单路径的负载。</p>
+<h3 id="总结" tabindex="-1"><a class="header-anchor" href="#总结"><span>总结</span></a></h3>
+<p>通过限制带宽、分批次备份、设置时间窗口、使用异步复制、网络质量监控和动态调整、配置 QoS 等方法，可以有效地控制
+MinIO 集群备份和异地复制过程中对网络的占用，从而保证业务的正常运行。这些方法可以根据具体业务需求和网络环境进
+行组合使用，以达到最佳效果。</p>
+</div></template>
+
+

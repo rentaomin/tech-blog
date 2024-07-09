@@ -1,0 +1,102 @@
+<template><div><h1 id="kafka-集群-topic-之-partion日志分段存储原理设计-五" tabindex="-1"><a class="header-anchor" href="#kafka-集群-topic-之-partion日志分段存储原理设计-五"><span>kafka 集群 Topic 之 Partion日志分段存储原理设计（五）</span></a></h1>
+<div class="language-text line-numbers-mode" data-highlighter="prismjs" data-ext="text" data-title="text"><pre v-pre class="language-text"><code><span class="line">kafka 的 topic 中 partition 将消息存储在多个日志分段中，配置文件不是只配置了一个日志路径，</span>
+<span class="line">那kafka是如何实现分为多个日志分段文件的，并存储写入topic消息内容的？</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div></div></div><p>Kafka 通过将消息日志分成多个分段文件（log segments）来管理每个 Partition 的存储。虽然 Kafka 在配置
+文件中只指定了一个日志存储路径，但它会在该路径下根据需要自动创建和管理这些分段文件。以下是详细的实现原
+理和操作流程。</p>
+<h3 id="_1-配置文件中的日志存储路径" tabindex="-1"><a class="header-anchor" href="#_1-配置文件中的日志存储路径"><span>1. 配置文件中的日志存储路径</span></a></h3>
+<p>在 Kafka 的配置文件（<code v-pre>server.properties</code>）中，日志存储路径通常通过以下配置项指定：</p>
+<div class="language-properties line-numbers-mode" data-highlighter="prismjs" data-ext="properties" data-title="properties"><pre v-pre class="language-properties"><code><span class="line"><span class="token key attr-name">log.dirs</span><span class="token punctuation">=</span><span class="token value attr-value">/var/lib/kafka/logs</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div><p>这个配置项指定了 Kafka 存储日志文件的目录路径。</p>
+<h3 id="_2-日志分段文件的自动管理" tabindex="-1"><a class="header-anchor" href="#_2-日志分段文件的自动管理"><span>2. 日志分段文件的自动管理</span></a></h3>
+<p>Kafka 会在配置的日志存储路径下自动创建和管理日志分段文件。每个分段文件有固定的大小，当一个分段文件
+达到指定大小后，Kafka 会自动创建一个新的分段文件来继续写入消息。</p>
+<h4 id="分段文件的命名规则" tabindex="-1"><a class="header-anchor" href="#分段文件的命名规则"><span>分段文件的命名规则</span></a></h4>
+<p>Kafka 通过文件名来管理和区分不同的分段文件。每个分段文件的文件名是该分段内第一个消息的偏移量。例如：</p>
+<div class="language-text line-numbers-mode" data-highlighter="prismjs" data-ext="text" data-title="text"><pre v-pre class="language-text"><code><span class="line">/var/lib/kafka/logs/my_topic-0/</span>
+<span class="line">  - 00000000000000000000.log</span>
+<span class="line">  - 00000000000000001000.log</span>
+<span class="line">  - 00000000000000002000.log</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_3-核心代码示例和流程" tabindex="-1"><a class="header-anchor" href="#_3-核心代码示例和流程"><span>3. 核心代码示例和流程</span></a></h3>
+<h4 id="日志分段管理" tabindex="-1"><a class="header-anchor" href="#日志分段管理"><span>日志分段管理</span></a></h4>
+<p>Kafka 在每个 Partition 的目录下管理多个分段文件。每个分段文件有固定的大小，当一个分段文件写满后，
+Kafka 会创建一个新的分段文件。</p>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token comment">// Log.scala</span></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">Log</span><span class="token punctuation">(</span>val dir<span class="token operator">:</span> <span class="token class-name">File</span><span class="token punctuation">,</span> val config<span class="token operator">:</span> <span class="token class-name">LogConfig</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    val segments <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">LogSegments</span><span class="token punctuation">(</span>dir<span class="token punctuation">)</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">append</span><span class="token punctuation">(</span>records<span class="token operator">:</span> <span class="token class-name">MemoryRecords</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val segment <span class="token operator">=</span> <span class="token function">maybeRoll</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span>
+<span class="line">        segment<span class="token punctuation">.</span><span class="token function">append</span><span class="token punctuation">(</span>records<span class="token punctuation">)</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">private</span> def <span class="token function">maybeRoll</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">LogSegment</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val activeSegment <span class="token operator">=</span> segments<span class="token punctuation">.</span>activeSegment</span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>activeSegment<span class="token punctuation">.</span>size <span class="token operator">></span> config<span class="token punctuation">.</span>segmentSize<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            val newSegment <span class="token operator">=</span> <span class="token function">createNewSegment</span><span class="token punctuation">(</span>activeSegment<span class="token punctuation">.</span>baseOffset <span class="token operator">+</span> activeSegment<span class="token punctuation">.</span>size<span class="token punctuation">)</span></span>
+<span class="line">            segments<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>newSegment<span class="token punctuation">)</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">        segments<span class="token punctuation">.</span>activeSegment</span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">private</span> def <span class="token function">createNewSegment</span><span class="token punctuation">(</span>baseOffset<span class="token operator">:</span> <span class="token class-name">Long</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">LogSegment</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val logFile <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">File</span><span class="token punctuation">(</span>dir<span class="token punctuation">,</span> s<span class="token string">"$baseOffset.log"</span><span class="token punctuation">)</span></span>
+<span class="line">        val indexFile <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">File</span><span class="token punctuation">(</span>dir<span class="token punctuation">,</span> s<span class="token string">"$baseOffset.index"</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token keyword">new</span> <span class="token class-name">LogSegment</span><span class="token punctuation">(</span>baseOffset<span class="token punctuation">,</span> logFile<span class="token punctuation">,</span> indexFile<span class="token punctuation">)</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h4 id="日志分段文件的写入" tabindex="-1"><a class="header-anchor" href="#日志分段文件的写入"><span>日志分段文件的写入</span></a></h4>
+<p>当生产者向 Kafka 发送消息时，Kafka 会将这些消息写入当前活动的日志分段文件。如果该分段文件已经达到配置
+的最大大小，Kafka 会滚动到一个新的分段文件继续写入。</p>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token comment">// LogSegment.scala</span></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">LogSegment</span><span class="token punctuation">(</span>val baseOffset<span class="token operator">:</span> <span class="token class-name">Long</span><span class="token punctuation">,</span> val log<span class="token operator">:</span> <span class="token class-name">File</span><span class="token punctuation">,</span> val index<span class="token operator">:</span> <span class="token class-name">File</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    val logFile <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">FileChannel</span><span class="token punctuation">(</span>log<span class="token punctuation">)</span></span>
+<span class="line">    val indexFile <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">IndexChannel</span><span class="token punctuation">(</span>index<span class="token punctuation">)</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">append</span><span class="token punctuation">(</span>record<span class="token operator">:</span> <span class="token class-name">Record</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        logFile<span class="token punctuation">.</span><span class="token function">write</span><span class="token punctuation">(</span>record<span class="token punctuation">)</span></span>
+<span class="line">        indexFile<span class="token punctuation">.</span><span class="token function">append</span><span class="token punctuation">(</span>record<span class="token punctuation">.</span>offset<span class="token punctuation">,</span> logFile<span class="token punctuation">.</span>position<span class="token punctuation">)</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_4-配置日志分段的参数" tabindex="-1"><a class="header-anchor" href="#_4-配置日志分段的参数"><span>4. 配置日志分段的参数</span></a></h3>
+<p>Kafka 通过配置文件中的参数来控制日志分段的大小和滚动策略：</p>
+<div class="language-properties line-numbers-mode" data-highlighter="prismjs" data-ext="properties" data-title="properties"><pre v-pre class="language-properties"><code><span class="line"><span class="token key attr-name">log.segment.bytes</span><span class="token punctuation">=</span><span class="token value attr-value">1073741824  # 每个分段文件的最大大小，默认1GB</span></span>
+<span class="line"><span class="token key attr-name">log.roll.hours</span><span class="token punctuation">=</span><span class="token value attr-value">168            # 日志分段文件的最大滚动时间，默认7天</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div></div></div><p>这些参数确保 Kafka 能够有效地管理日志文件，避免单个文件过大影响性能，并确保日志文件按时间滚动。</p>
+<h3 id="_5-日志分段文件的读取" tabindex="-1"><a class="header-anchor" href="#_5-日志分段文件的读取"><span>5. 日志分段文件的读取</span></a></h3>
+<p>Kafka 通过索引文件快速定位消息，然后从相应的日志分段文件中读取消息。</p>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token comment">// LogSegment.scala</span></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">LogSegment</span><span class="token punctuation">(</span>val baseOffset<span class="token operator">:</span> <span class="token class-name">Long</span><span class="token punctuation">,</span> val log<span class="token operator">:</span> <span class="token class-name">File</span><span class="token punctuation">,</span> val index<span class="token operator">:</span> <span class="token class-name">File</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    def <span class="token function">read</span><span class="token punctuation">(</span>offset<span class="token operator">:</span> <span class="token class-name">Long</span><span class="token punctuation">,</span> maxBytes<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">MemoryRecords</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val position <span class="token operator">=</span> index<span class="token punctuation">.</span><span class="token function">lookup</span><span class="token punctuation">(</span>offset<span class="token punctuation">)</span></span>
+<span class="line">        logFile<span class="token punctuation">.</span><span class="token function">read</span><span class="token punctuation">(</span>position<span class="token punctuation">,</span> maxBytes<span class="token punctuation">)</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_6-消息存储和读取的完整流程" tabindex="-1"><a class="header-anchor" href="#_6-消息存储和读取的完整流程"><span>6. 消息存储和读取的完整流程</span></a></h3>
+<ol>
+<li><strong>生产者发送消息</strong>：生产者将消息发送到 Kafka 的某个 Topic 的某个 Partition。</li>
+<li><strong>写入活动日志分段文件</strong>：Kafka 将消息写入当前活动的日志分段文件。如果该文件已达到最大大小，则滚动到新
+的分段文件。</li>
+<li><strong>创建新分段文件</strong>：当活动日志分段文件达到最大大小时，Kafka 会创建新的分段文件继续写入消息。</li>
+<li><strong>读取消息</strong>：消费者根据消息偏移量读取消息，Kafka 使用索引文件快速定位消息在日志分段文件中的位置，然后
+从相应的分段文件中读取消息。</li>
+</ol>
+<h3 id="总结" tabindex="-1"><a class="header-anchor" href="#总结"><span>总结</span></a></h3>
+<ul>
+<li><strong>日志分段管理</strong>：Kafka 在配置的日志存储路径下自动创建和管理日志分段文件。每个分段文件有固定的大小，达到
+最大大小后自动滚动到新的分段文件。</li>
+<li><strong>参数配置</strong>：通过配置参数控制日志分段的大小和滚动策略，确保日志文件管理的高效性。</li>
+<li><strong>分段文件写入和读取</strong>：生产者发送消息时写入当前活动的日志分段文件，消费者读取消息时通过索引文件快速定
+位并读取相应的分段文件。</li>
+</ul>
+<p>这些机制确保 Kafka 能够高效地存储和管理大量的消息，提供高吞吐量和可靠性。</p>
+</div></template>
+
+

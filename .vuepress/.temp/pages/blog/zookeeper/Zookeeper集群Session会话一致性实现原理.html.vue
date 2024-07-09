@@ -1,0 +1,225 @@
+<template><div><h1 id="zookeeper-集群-session-会话一致性实现原理" tabindex="-1"><a class="header-anchor" href="#zookeeper-集群-session-会话一致性实现原理"><span>Zookeeper 集群 Session 会话一致性实现原理</span></a></h1>
+<h1 id="" tabindex="-1"><a class="header-anchor" href="#"><span></span></a></h1>
+<p>在 Zookeeper 中，会话管理是保证客户端与服务器之间连接状态的一部分。会话（session）
+管理主要涉及到如何保持客户端连接状态、处理会话超时以及在领导节点故障和选举过程中保持
+会话的一致性。下面详细介绍会话管理的同步机制及其实现原理。</p>
+<h3 id="会话管理的同步机制" tabindex="-1"><a class="header-anchor" href="#会话管理的同步机制"><span>会话管理的同步机制</span></a></h3>
+<ol>
+<li>
+<p><strong>会话创建</strong>：</p>
+<ul>
+<li>
+<p>客户端首次连接到 Zookeeper 集群时，会创建一个会话。会话由一个唯一的会话 ID
+(session ID) 和一个超时时间 (session timeout) 组成。</p>
+</li>
+<li>
+<p>领导节点会生成并管理这个会话 ID，并将其同步到所有跟随者节点。</p>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>会话心跳</strong>：</p>
+<ul>
+<li>为了保持会话的活跃状态，客户端需要定期发送心跳请求（ping）到服务器。</li>
+<li>领导节点会接收心跳请求并重置会话的超时时间，然后将心跳消息同步到所有跟随者节点。</li>
+</ul>
+</li>
+<li>
+<p><strong>会话超时</strong>：</p>
+<ul>
+<li>如果在指定的超时时间内，服务器没有收到客户端的心跳请求，会认为该会话已超时。</li>
+<li>领导节点会将会话超时的信息同步到所有跟随者节点，触发与该会话相关的所有临时节点的删除。</li>
+</ul>
+</li>
+<li>
+<p><strong>领导节点故障处理</strong>：</p>
+<ul>
+<li>当领导节点故障时，新的领导节点选出后，会从旧领导节点或最新的跟随者节点获取最新的会话信息。</li>
+<li>新的领导节点将会话信息同步到所有跟随者节点，确保所有节点对会话有一致的视图。</li>
+</ul>
+</li>
+</ol>
+<h3 id="会话管理的具体实现" tabindex="-1"><a class="header-anchor" href="#会话管理的具体实现"><span>会话管理的具体实现</span></a></h3>
+<h4 id="_1-会话创建和心跳机制" tabindex="-1"><a class="header-anchor" href="#_1-会话创建和心跳机制"><span>1. 会话创建和心跳机制</span></a></h4>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token keyword">class</span> <span class="token class-name">ZookeeperNode</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token keyword">int</span> id<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token keyword">boolean</span> isLeader<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token class-name">Map</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span></span> sessions <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">HashMap</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token punctuation">></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token class-name">List</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">ZookeeperNode</span><span class="token punctuation">></span></span> followers<span class="token punctuation">;</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token class-name">ZookeeperNode</span><span class="token punctuation">(</span><span class="token keyword">int</span> id<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>id <span class="token operator">=</span> id<span class="token punctuation">;</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>isLeader <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>followers <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ArrayList</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token punctuation">></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">addFollower</span><span class="token punctuation">(</span><span class="token class-name">ZookeeperNode</span> follower<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        followers<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>follower<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">createSession</span><span class="token punctuation">(</span><span class="token keyword">long</span> sessionId<span class="token punctuation">,</span> <span class="token keyword">int</span> timeout<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>isLeader<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            <span class="token class-name">Session</span> session <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Session</span><span class="token punctuation">(</span>sessionId<span class="token punctuation">,</span> timeout<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            sessions<span class="token punctuation">.</span><span class="token function">put</span><span class="token punctuation">(</span>sessionId<span class="token punctuation">,</span> session<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token function">broadcastSession</span><span class="token punctuation">(</span>session<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">receiveHeartbeat</span><span class="token punctuation">(</span><span class="token keyword">long</span> sessionId<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>isLeader<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            <span class="token class-name">Session</span> session <span class="token operator">=</span> sessions<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span>sessionId<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token keyword">if</span> <span class="token punctuation">(</span>session <span class="token operator">!=</span> <span class="token keyword">null</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">                session<span class="token punctuation">.</span><span class="token function">resetTimeout</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">                <span class="token function">broadcastSession</span><span class="token punctuation">(</span>session<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token punctuation">}</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token keyword">void</span> <span class="token function">broadcastSession</span><span class="token punctuation">(</span><span class="token class-name">Session</span> session<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token class-name">ZookeeperNode</span> follower <span class="token operator">:</span> followers<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            follower<span class="token punctuation">.</span><span class="token function">updateSession</span><span class="token punctuation">(</span>session<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">updateSession</span><span class="token punctuation">(</span><span class="token class-name">Session</span> session<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        sessions<span class="token punctuation">.</span><span class="token function">put</span><span class="token punctuation">(</span>session<span class="token punctuation">.</span><span class="token function">getSessionId</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> session<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">checkSessionTimeouts</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">long</span> currentTime <span class="token operator">=</span> <span class="token class-name">System</span><span class="token punctuation">.</span><span class="token function">currentTimeMillis</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token class-name">Iterator</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Map<span class="token punctuation">.</span>Entry</span><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span><span class="token punctuation">></span></span> iterator <span class="token operator">=</span> sessions<span class="token punctuation">.</span><span class="token function">entrySet</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">iterator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token keyword">while</span> <span class="token punctuation">(</span>iterator<span class="token punctuation">.</span><span class="token function">hasNext</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            <span class="token class-name">Map<span class="token punctuation">.</span>Entry</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span></span> entry <span class="token operator">=</span> iterator<span class="token punctuation">.</span><span class="token function">next</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token class-name">Session</span> session <span class="token operator">=</span> entry<span class="token punctuation">.</span><span class="token function">getValue</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token keyword">if</span> <span class="token punctuation">(</span>currentTime <span class="token operator">-</span> session<span class="token punctuation">.</span><span class="token function">getLastHeartbeatTime</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> session<span class="token punctuation">.</span><span class="token function">getTimeout</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">                iterator<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">                <span class="token class-name">System</span><span class="token punctuation">.</span>out<span class="token punctuation">.</span><span class="token function">println</span><span class="token punctuation">(</span><span class="token string">"Session "</span> <span class="token operator">+</span> session<span class="token punctuation">.</span><span class="token function">getSessionId</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> </span>
+<span class="line">                <span class="token string">" has timed out."</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token punctuation">}</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">Session</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token keyword">long</span> sessionId<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token keyword">int</span> timeout<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token keyword">long</span> lastHeartbeatTime<span class="token punctuation">;</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token class-name">Session</span><span class="token punctuation">(</span><span class="token keyword">long</span> sessionId<span class="token punctuation">,</span> <span class="token keyword">int</span> timeout<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>sessionId <span class="token operator">=</span> sessionId<span class="token punctuation">;</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>timeout <span class="token operator">=</span> timeout<span class="token punctuation">;</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>lastHeartbeatTime <span class="token operator">=</span> <span class="token class-name">System</span><span class="token punctuation">.</span><span class="token function">currentTimeMillis</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">long</span> <span class="token function">getSessionId</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">return</span> sessionId<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">int</span> <span class="token function">getTimeout</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">return</span> timeout<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">long</span> <span class="token function">getLastHeartbeatTime</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">return</span> lastHeartbeatTime<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">resetTimeout</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>lastHeartbeatTime <span class="token operator">=</span> <span class="token class-name">System</span><span class="token punctuation">.</span><span class="token function">currentTimeMillis</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h4 id="_2-会话超时和删除" tabindex="-1"><a class="header-anchor" href="#_2-会话超时和删除"><span>2. 会话超时和删除</span></a></h4>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">checkSessionTimeouts</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">long</span> currentTime <span class="token operator">=</span> <span class="token class-name">System</span><span class="token punctuation">.</span><span class="token function">currentTimeMillis</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token class-name">Iterator</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Map<span class="token punctuation">.</span>Entry</span><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span><span class="token punctuation">></span></span> iterator <span class="token operator">=</span> sessions<span class="token punctuation">.</span><span class="token function">entrySet</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">iterator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">while</span> <span class="token punctuation">(</span>iterator<span class="token punctuation">.</span><span class="token function">hasNext</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token class-name">Map<span class="token punctuation">.</span>Entry</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span></span> entry <span class="token operator">=</span> iterator<span class="token punctuation">.</span><span class="token function">next</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token class-name">Session</span> session <span class="token operator">=</span> entry<span class="token punctuation">.</span><span class="token function">getValue</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>currentTime <span class="token operator">-</span> session<span class="token punctuation">.</span><span class="token function">getLastHeartbeatTime</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> session<span class="token punctuation">.</span><span class="token function">getTimeout</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            iterator<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token class-name">System</span><span class="token punctuation">.</span>out<span class="token punctuation">.</span><span class="token function">println</span><span class="token punctuation">(</span><span class="token string">"Session "</span> <span class="token operator">+</span> session<span class="token punctuation">.</span><span class="token function">getSessionId</span><span class="token punctuation">(</span><span class="token punctuation">)</span> </span>
+<span class="line">            <span class="token operator">+</span> <span class="token string">" has timed out."</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token function">broadcastSessionTimeout</span><span class="token punctuation">(</span>session<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line"><span class="token keyword">private</span> <span class="token keyword">void</span> <span class="token function">broadcastSessionTimeout</span><span class="token punctuation">(</span><span class="token class-name">Session</span> session<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token class-name">ZookeeperNode</span> follower <span class="token operator">:</span> followers<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        follower<span class="token punctuation">.</span><span class="token function">removeSession</span><span class="token punctuation">(</span>session<span class="token punctuation">.</span><span class="token function">getSessionId</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line"><span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">removeSession</span><span class="token punctuation">(</span><span class="token keyword">long</span> sessionId<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    sessions<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span>sessionId<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h4 id="_3-领导节点故障和会话恢复" tabindex="-1"><a class="header-anchor" href="#_3-领导节点故障和会话恢复"><span>3. 领导节点故障和会话恢复</span></a></h4>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">recoverSessions</span><span class="token punctuation">(</span><span class="token class-name">Map</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span></span> recoveredSessions<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token class-name">Map<span class="token punctuation">.</span>Entry</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Long</span><span class="token punctuation">,</span> <span class="token class-name">Session</span><span class="token punctuation">></span></span> entry <span class="token operator">:</span> recoveredSessions<span class="token punctuation">.</span><span class="token function">entrySet</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        sessions<span class="token punctuation">.</span><span class="token function">put</span><span class="token punctuation">(</span>entry<span class="token punctuation">.</span><span class="token function">getKey</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> entry<span class="token punctuation">.</span><span class="token function">getValue</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line"><span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">synchronizeSessionsWithLeader</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token class-name">ZookeeperNode</span> follower <span class="token operator">:</span> followers<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        follower<span class="token punctuation">.</span><span class="token function">recoverSessions</span><span class="token punctuation">(</span>sessions<span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">LeaderElection</span> <span class="token punctuation">{</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token class-name">Map</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Integer</span><span class="token punctuation">,</span> <span class="token class-name">ZookeeperNode</span><span class="token punctuation">></span></span> nodes<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token keyword">private</span> <span class="token class-name">ZookeeperNode</span> leader<span class="token punctuation">;</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token class-name">LeaderElection</span><span class="token punctuation">(</span><span class="token class-name">Map</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Integer</span><span class="token punctuation">,</span> <span class="token class-name">ZookeeperNode</span><span class="token punctuation">></span></span> nodes<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>nodes <span class="token operator">=</span> nodes<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">startElection</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">int</span> highestId <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token class-name">ZookeeperNode</span> newLeader <span class="token operator">=</span> <span class="token keyword">null</span><span class="token punctuation">;</span></span>
+<span class="line"></span>
+<span class="line">        <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token class-name">ZookeeperNode</span> node <span class="token operator">:</span> nodes<span class="token punctuation">.</span><span class="token function">values</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            <span class="token keyword">if</span> <span class="token punctuation">(</span>node<span class="token punctuation">.</span><span class="token function">isAlive</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> node<span class="token punctuation">.</span><span class="token function">getId</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> highestId<span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">                highestId <span class="token operator">=</span> node<span class="token punctuation">.</span><span class="token function">getId</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">                newLeader <span class="token operator">=</span> node<span class="token punctuation">;</span></span>
+<span class="line">            <span class="token punctuation">}</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>newLeader <span class="token operator">!=</span> <span class="token keyword">null</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            leader <span class="token operator">=</span> newLeader<span class="token punctuation">;</span></span>
+<span class="line">            leader<span class="token punctuation">.</span><span class="token function">becomeLeader</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            leader<span class="token punctuation">.</span><span class="token function">synchronizeSessionsWithLeader</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">            <span class="token class-name">System</span><span class="token punctuation">.</span>out<span class="token punctuation">.</span><span class="token function">println</span><span class="token punctuation">(</span><span class="token string">"New leader elected: "</span> <span class="token operator">+</span> leader<span class="token punctuation">.</span><span class="token function">getId</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    <span class="token keyword">public</span> <span class="token class-name">ZookeeperNode</span> <span class="token function">getLeader</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">return</span> leader<span class="token punctuation">;</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="综述" tabindex="-1"><a class="header-anchor" href="#综述"><span>综述</span></a></h3>
+<ul>
+<li>
+<p><strong>会话创建</strong>：客户端连接到 Zookeeper 集群时，创建会话并生成唯一的会话 ID。领导节点管理会
+话，并将会话信息同步到所有跟随者节点。</p>
+</li>
+<li>
+<p><strong>会话心跳</strong>：客户端定期发送心跳请求，领导节点接收并重置会话超时时间，同时将心跳消息同步到
+所有跟随者节点。</p>
+</li>
+<li>
+<p><strong>会话超时</strong>：如果在指定时间内未收到心跳请求，领导节点认为会话超时并同步超时信息到所有跟随
+者节点，删除与该会话相关的临时节点。</p>
+</li>
+<li>
+<p><strong>领导节点故障</strong>：新领导节点选出后，从旧领导节点或最新的跟随者节点获取最新会话信息，并同步
+到所有跟随者节点，确保会话一致性。</p>
+</li>
+</ul>
+<p>通过上述机制，Zookeeper 确保在领导节点故障和选举期间，客户端会话能够保持一致和可靠，从而实现
+单一系统映像的目标。</p>
+</div></template>
+
+

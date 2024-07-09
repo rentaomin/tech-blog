@@ -1,0 +1,81 @@
+<template><div><h1 id="kafka-集群为什么依赖-zookeeper" tabindex="-1"><a class="header-anchor" href="#kafka-集群为什么依赖-zookeeper"><span>kafka 集群为什么依赖 zookeeper ？</span></a></h1>
+<p>在 Kafka 集群中，ZooKeeper 扮演了关键的角色，负责协调和管理 Kafka 的分布式系统。具体来说，ZooKeeper 在 Kafka 集群中主要起到以下几个作用：</p>
+<h3 id="_1-管理集群元数据" tabindex="-1"><a class="header-anchor" href="#_1-管理集群元数据"><span>1. <strong>管理集群元数据</strong></span></a></h3>
+<p>ZooKeeper 存储和管理 Kafka 集群的元数据信息，包括 Broker 信息、Topic 信息、Partition 信息和 Replica 信息。这些元数据对于 Kafka 的正常运行至关重要。</p>
+<h4 id="具体内容" tabindex="-1"><a class="header-anchor" href="#具体内容"><span>具体内容：</span></a></h4>
+<ul>
+<li>
+<p><strong>Broker 注册</strong>：每个 Kafka Broker 在启动时会向 ZooKeeper 注册其自身的信息，如 <code v-pre>broker.id</code> 和网络地址。ZooKeeper 通过这些信息知道当前集群中有哪些 Broker。</p>
+</li>
+<li>
+<p><strong>Topic 和 Partition 信息</strong>：ZooKeeper 保存所有 Topic 和 Partition 的元数据，包括每个 Partition 的 Leader 和 Follower 副本的信息。</p>
+</li>
+<li>
+<p><strong>Replica 信息</strong>：记录每个 Partition 的副本及其同步状态。</p>
+</li>
+</ul>
+<h3 id="_2-选举-kafka-controller" tabindex="-1"><a class="header-anchor" href="#_2-选举-kafka-controller"><span>2. <strong>选举 Kafka Controller</strong></span></a></h3>
+<p>Kafka Controller 是一个特殊的 Broker，负责管理集群范围内的行政管理任务，比如 Topic 创建、删除和分区重新分配。ZooKeeper 负责选举 Kafka Controller，并在当前 Controller 失效时进行重新选举。</p>
+<h4 id="具体内容-1" tabindex="-1"><a class="header-anchor" href="#具体内容-1"><span>具体内容：</span></a></h4>
+<ul>
+<li><strong>Controller 选举</strong>：ZooKeeper 通过创建一个临时节点来选举 Controller，第一个成功创建该节点的 Broker 成为 Controller。当 Controller 挂掉时，ZooKeeper 会删除该临时节点，并触发重新选举。</li>
+</ul>
+<h3 id="_3-partition-leader-选举" tabindex="-1"><a class="header-anchor" href="#_3-partition-leader-选举"><span>3. <strong>Partition Leader 选举</strong></span></a></h3>
+<p>Kafka 使用 ZooKeeper 来管理每个 Partition 的 Leader 选举。Leader 是负责处理该 Partition 所有读写请求的 Broker。ZooKeeper 确保在一个 Broker 挂掉后，能够及时选出新的 Leader。</p>
+<h4 id="具体内容-2" tabindex="-1"><a class="header-anchor" href="#具体内容-2"><span>具体内容：</span></a></h4>
+<ul>
+<li><strong>Leader 选举</strong>：当一个 Broker 挂掉时，ZooKeeper 会触发 Leader 选举过程，从 ISR（In-Sync Replica）列表中选择新的 Leader。ISR 列表中的副本是与 Leader 同步的副本。</li>
+</ul>
+<h3 id="_4-监控-broker-的状态" tabindex="-1"><a class="header-anchor" href="#_4-监控-broker-的状态"><span>4. <strong>监控 Broker 的状态</strong></span></a></h3>
+<p>ZooKeeper 负责监控每个 Kafka Broker 的运行状态。当某个 Broker 挂掉或重新启动时，ZooKeeper 会通知其他 Broker 和相关组件，进行相应的处理。</p>
+<h4 id="具体内容-3" tabindex="-1"><a class="header-anchor" href="#具体内容-3"><span>具体内容：</span></a></h4>
+<ul>
+<li><strong>故障检测</strong>：通过心跳机制监控 Broker 的存活状态，当检测到 Broker 失效时，通知 Kafka Controller 和其他 Broker 进行相应处理。</li>
+</ul>
+<h3 id="_5-管理消费者组" tabindex="-1"><a class="header-anchor" href="#_5-管理消费者组"><span>5. <strong>管理消费者组</strong></span></a></h3>
+<p>ZooKeeper 维护 Kafka 早期版本的消费者组（Consumer Group）的元数据信息，如每个消费者组的成员和每个成员所消费的 Partition 信息。在 Kafka 的新版本中，消费者组元数据已经移到了 Kafka 自身的内部 Topic 中。</p>
+<h4 id="具体内容-4" tabindex="-1"><a class="header-anchor" href="#具体内容-4"><span>具体内容：</span></a></h4>
+<ul>
+<li><strong>消费者组协调</strong>：在 Kafka 的早期版本中，ZooKeeper 用于管理消费者组的成员信息和消费的 Offset。在 Kafka 0.9 及以上版本中，这些功能已经由 Kafka 内部 Topic 管理，但 ZooKeeper 仍然保留了一些基础功能。</li>
+</ul>
+<h3 id="具体实现示例" tabindex="-1"><a class="header-anchor" href="#具体实现示例"><span>具体实现示例</span></a></h3>
+<p>以下是一些具体的 ZooKeeper 在 Kafka 集群中的实现示例：</p>
+<h4 id="broker-注册" tabindex="-1"><a class="header-anchor" href="#broker-注册"><span>Broker 注册</span></a></h4>
+<p>当一个 Kafka Broker 启动时，它会向 ZooKeeper 注册自身的信息：</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token comment"># Kafka Broker 启动时注册到 ZooKeeper</span></span>
+<span class="line"><span class="token punctuation">{</span></span>
+<span class="line">  <span class="token string">"broker_id"</span><span class="token builtin class-name">:</span> <span class="token number">1</span>,</span>
+<span class="line">  <span class="token string">"host"</span><span class="token builtin class-name">:</span> <span class="token string">"kafka1"</span>,</span>
+<span class="line">  <span class="token string">"port"</span><span class="token builtin class-name">:</span> <span class="token number">9092</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h4 id="topic-和-partition-信息" tabindex="-1"><a class="header-anchor" href="#topic-和-partition-信息"><span>Topic 和 Partition 信息</span></a></h4>
+<p>ZooKeeper 存储的 Topic 和 Partition 信息：</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token comment"># 在 ZooKeeper 中存储的 Topic 信息</span></span>
+<span class="line">/kafka-topics/topics/my_topic/partitions</span>
+<span class="line">/kafka-topics/topics/my_topic/partitions/0/state</span>
+<span class="line"><span class="token punctuation">{</span></span>
+<span class="line">  <span class="token string">"controller_epoch"</span><span class="token builtin class-name">:</span> <span class="token number">1</span>,</span>
+<span class="line">  <span class="token string">"leader"</span><span class="token builtin class-name">:</span> <span class="token number">1</span>,</span>
+<span class="line">  <span class="token string">"version"</span><span class="token builtin class-name">:</span> <span class="token number">1</span>,</span>
+<span class="line">  <span class="token string">"leader_epoch"</span><span class="token builtin class-name">:</span> <span class="token number">1</span>,</span>
+<span class="line">  <span class="token string">"isr"</span><span class="token builtin class-name">:</span> <span class="token punctuation">[</span><span class="token number">1</span>, <span class="token number">2</span>, <span class="token number">3</span><span class="token punctuation">]</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h4 id="leader-选举" tabindex="-1"><a class="header-anchor" href="#leader-选举"><span>Leader 选举</span></a></h4>
+<p>当一个 Partition 的 Leader 挂掉时，ZooKeeper 触发新的 Leader 选举：</p>
+<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line"><span class="token comment"># ZooKeeper 触发 Leader 选举</span></span>
+<span class="line">/kafka-topics/topics/my_topic/partitions/0/state</span>
+<span class="line"><span class="token punctuation">{</span></span>
+<span class="line">  <span class="token string">"controller_epoch"</span><span class="token builtin class-name">:</span> <span class="token number">2</span>,</span>
+<span class="line">  <span class="token string">"leader"</span><span class="token builtin class-name">:</span> <span class="token number">2</span>,</span>
+<span class="line">  <span class="token string">"version"</span><span class="token builtin class-name">:</span> <span class="token number">1</span>,</span>
+<span class="line">  <span class="token string">"leader_epoch"</span><span class="token builtin class-name">:</span> <span class="token number">2</span>,</span>
+<span class="line">  <span class="token string">"isr"</span><span class="token builtin class-name">:</span> <span class="token punctuation">[</span><span class="token number">2</span>, <span class="token number">3</span><span class="token punctuation">]</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="结论" tabindex="-1"><a class="header-anchor" href="#结论"><span>结论</span></a></h3>
+<p>在 Kafka 集群中，ZooKeeper 扮演着至关重要的角色，通过管理集群元数据、选举 Kafka Controller、选举 Partition Leader、监控 Broker 状态和管理消费者组等功能，确保了 Kafka 集群的高可用性和一致性。理解 ZooKeeper 在 Kafka 中的作用，对于架构师设计和维护高效、可靠的 Kafka 系统至关重要。</p>
+</div></template>
+
+

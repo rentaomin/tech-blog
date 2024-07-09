@@ -1,0 +1,197 @@
+<template><div><h1 id="kafka-集群节点数量的设计" tabindex="-1"><a class="header-anchor" href="#kafka-集群节点数量的设计"><span>Kafka 集群节点数量的设计</span></a></h1>
+<div class="language-text line-numbers-mode" data-highlighter="prismjs" data-ext="text" data-title="text"><pre v-pre class="language-text"><code><span class="line">上述副本数量设置为3，如果一个节点故障，会从剩余两个节点选择一个为leader,假如剩余的leader故</span>
+<span class="line">障，还有一个节点是否可以正常对外提供服务，如果剩余的folower节点故障，难道不是还有一个节点可</span>
+<span class="line">以正常提供服务吗?</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><p>在 Kafka 集群中，副本数量为 3 的配置下，的确可以容忍最多一个节点故障，而仍然保持数据的高可
+用性和一致性。以下是详细解释如果在副本数量为 3 的情况下出现不同故障情景时，Kafka 如何处理及
+其工作机制。</p>
+<h3 id="_1-副本数量为-3-的情况下的故障处理" tabindex="-1"><a class="header-anchor" href="#_1-副本数量为-3-的情况下的故障处理"><span>1. 副本数量为 3 的情况下的故障处理</span></a></h3>
+<p>假设我们有 3 个节点（A、B、C），每个节点上都有一个副本。以下是不同情况下的故障处理：</p>
+<h4 id="正常运行状态" tabindex="-1"><a class="header-anchor" href="#正常运行状态"><span>正常运行状态</span></a></h4>
+<ul>
+<li><strong>Partition 0</strong>：
+<ul>
+<li><strong>Leader</strong>：节点 A</li>
+<li><strong>Follower</strong>：节点 B、节点 C</li>
+</ul>
+</li>
+</ul>
+<h4 id="场景-1-一个节点-非-leader-故障" tabindex="-1"><a class="header-anchor" href="#场景-1-一个节点-非-leader-故障"><span>场景 1：一个节点（非 Leader）故障</span></a></h4>
+<p>假设节点 C 故障：</p>
+<ul>
+<li><strong>Partition 0</strong>：
+<ul>
+<li><strong>Leader</strong>：节点 A</li>
+<li><strong>Follower</strong>：节点 B（节点 C 故障）</li>
+</ul>
+</li>
+</ul>
+<p>在这种情况下，Kafka 仍然可以正常工作，因为 Leader 仍然在运行，剩余的 Follower（节点 B）可以继续复
+制数据，ISR 列表变为 [A, B]。</p>
+<h4 id="场景-2-一个节点-leader-故障" tabindex="-1"><a class="header-anchor" href="#场景-2-一个节点-leader-故障"><span>场景 2：一个节点（Leader）故障</span></a></h4>
+<p>假设节点 A 故障：</p>
+<ul>
+<li><strong>Partition 0</strong>：
+<ul>
+<li><strong>Leader</strong>：节点 A（故障）</li>
+<li><strong>Follower</strong>：节点 B、节点 C</li>
+</ul>
+</li>
+</ul>
+<p>Kafka 会从剩下的 Follower 中选举一个新的 Leader。假设节点 B 被选举为新的 Leader：</p>
+<ul>
+<li><strong>Partition 0</strong>：
+<ul>
+<li><strong>Leader</strong>：节点 B</li>
+<li><strong>Follower</strong>：节点 C（节点 A 故障）</li>
+</ul>
+</li>
+</ul>
+<p>在这种情况下，Kafka 仍然可以正常工作，因为新选举的 Leader（节点 B）可以继续处理请求，剩余的 Follower
+（节点 C）继续复制数据，ISR 列表变为 [B, C]。</p>
+<h3 id="_2-副本数量为-3-的情况下的极端故障处理" tabindex="-1"><a class="header-anchor" href="#_2-副本数量为-3-的情况下的极端故障处理"><span>2. 副本数量为 3 的情况下的极端故障处理</span></a></h3>
+<h4 id="场景-3-两个节点故障" tabindex="-1"><a class="header-anchor" href="#场景-3-两个节点故障"><span>场景 3：两个节点故障</span></a></h4>
+<p>假设节点 A 和 B 故障：</p>
+<ul>
+<li><strong>Partition 0</strong>：
+<ul>
+<li><strong>Leader</strong>：节点 A（故障）</li>
+<li><strong>Follower</strong>：节点 B（故障）、节点 C</li>
+</ul>
+</li>
+</ul>
+<p>在这种情况下，只有一个节点（节点 C）是可用的，并且 Kafka 将无法选举出新的 Leader，因为选举需要大
+多数（majority）副本在线。而 3 个副本中的 1 个在线不构成多数。因此，Partition 0 将无法提供服务，直
+到至少一个故障节点恢复。</p>
+<h3 id="_3-kafka-高可用性机制及-isr-列表" tabindex="-1"><a class="header-anchor" href="#_3-kafka-高可用性机制及-isr-列表"><span>3. Kafka 高可用性机制及 ISR 列表</span></a></h3>
+<h4 id="isr-列表管理" tabindex="-1"><a class="header-anchor" href="#isr-列表管理"><span>ISR 列表管理</span></a></h4>
+<p>ISR（In-Sync Replica）列表包含所有与 Leader 保持同步的副本。Kafka 通过 ISR 列表管理数据一致性
+和高可用性：</p>
+<ul>
+<li><strong>正常状态</strong>：所有副本都在 ISR 列表中。</li>
+<li><strong>节点故障</strong>：故障节点从 ISR 列表中移除，Kafka 从剩余的 ISR 副本中选举新的 Leader。</li>
+</ul>
+<h4 id="核心代码示例" tabindex="-1"><a class="header-anchor" href="#核心代码示例"><span>核心代码示例</span></a></h4>
+<p>以下是 Kafka 选举新的 Leader 的核心代码示例：</p>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token comment">// Partition.scala</span></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">Partition</span><span class="token punctuation">(</span>val topicPartition<span class="token operator">:</span> <span class="token class-name">TopicPartition</span><span class="token punctuation">,</span> val leader<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">,</span> val replicas<span class="token operator">:</span> <span class="token class-name">List</span><span class="token punctuation">[</span><span class="token class-name">Int</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    val isr <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AtomicReference</span><span class="token punctuation">[</span><span class="token class-name">List</span><span class="token punctuation">[</span><span class="token class-name">Int</span><span class="token punctuation">]</span><span class="token punctuation">]</span><span class="token punctuation">(</span>replicas<span class="token punctuation">)</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">handleLeaderAndIsrRequest</span><span class="token punctuation">(</span>controllerId<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">,</span> leaderAndIsr<span class="token operator">:</span> <span class="token class-name">LeaderAndIsr</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>leader <span class="token operator">=</span> leaderAndIsr<span class="token punctuation">.</span>leader</span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>isr<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>leaderAndIsr<span class="token punctuation">.</span>isr<span class="token punctuation">)</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">maybeShrinkIsr</span><span class="token punctuation">(</span>replicaId<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val currentIsr <span class="token operator">=</span> isr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>currentIsr<span class="token punctuation">.</span><span class="token function">contains</span><span class="token punctuation">(</span>replicaId<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            isr<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>currentIsr<span class="token punctuation">.</span><span class="token function">filterNot</span><span class="token punctuation">(</span>_ <span class="token operator">==</span> replicaId<span class="token punctuation">)</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">maybeExpandIsr</span><span class="token punctuation">(</span>replicaId<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val currentIsr <span class="token operator">=</span> isr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>currentIsr<span class="token punctuation">.</span><span class="token function">contains</span><span class="token punctuation">(</span>replicaId<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            isr<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>replicaId <span class="token operator">::</span> <span class="token function">currentIsr</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="_4-总结" tabindex="-1"><a class="header-anchor" href="#_4-总结"><span>4. 总结</span></a></h3>
+<ul>
+<li><strong>单节点故障</strong>：在副本数量为 3 的情况下，可以容忍一个节点故障，Kafka 能从剩余的 Follower 中选举出
+新的 Leader 继续提供服务。</li>
+<li><strong>双节点故障</strong>：如果两个节点同时故障，Kafka 无法保证服务的可用性，因为无法选举出新的 Leader。</li>
+<li><strong>高可用性和一致性</strong>：通过 ISR 列表和 Leader 选举机制，Kafka 能在大多数副本可用时保证数据
+一致性和高可用性。</li>
+</ul>
+<h3 id="_5-合理设置副本数量和分区数量的建议" tabindex="-1"><a class="header-anchor" href="#_5-合理设置副本数量和分区数量的建议"><span>5. 合理设置副本数量和分区数量的建议</span></a></h3>
+<ol>
+<li><strong>副本数量</strong>：一般建议设置为 3，以在保证高可用性的同时提供容错能力。</li>
+<li><strong>分区数量</strong>：根据业务需求和并行处理能力设置，确保能够均衡分布在所有 Broker 上。</li>
+<li><strong>监控和运维</strong>：定期检查集群状态，确保各个节点和副本的健康状态。</li>
+</ol>
+<p>通过合理设置副本数量和分区数量，可以优化 Kafka 集群的性能和可靠性，确保其在高并发和高负载的情况
+下稳定运行。</p>
+<h3 id="如果双节点故障-剩余一个节点-为什么不设计为这个节点为默认leader节点" tabindex="-1"><a class="header-anchor" href="#如果双节点故障-剩余一个节点-为什么不设计为这个节点为默认leader节点"><span>如果双节点故障，剩余一个节点，为什么不设计为这个节点为默认leader节点?</span></a></h3>
+<p>设计Kafka时，考虑到数据一致性、数据可用性和故障恢复等问题，双节点故障时不将剩余一个节点自动设为
+Leader的原因如下：</p>
+<h3 id="_1-数据一致性保障" tabindex="-1"><a class="header-anchor" href="#_1-数据一致性保障"><span>1. 数据一致性保障</span></a></h3>
+<p>Kafka需要确保在任何时间点的数据都是一致的。如果只剩一个节点，而该节点自动成为Leader，则可能会导致
+数据不一致。</p>
+<ul>
+<li><strong>多数原则（Quorum）</strong>：Kafka使用多数原则来确保数据的一致性。为了选举出新的Leader，必须有多
+数（即超过一半）的副本在线。例如，3个副本中需要至少2个在线才能进行选举。这确保了不会出现“脑裂”情况，
+即两个节点分别认为自己是Leader。</li>
+<li><strong>分区日志一致性</strong>：如果剩余的节点自动成为Leader，而之前的数据同步未完成，可能会导致数据丢失或
+数据不一致。</li>
+</ul>
+<h3 id="_2-数据持久性和可靠性" tabindex="-1"><a class="header-anchor" href="#_2-数据持久性和可靠性"><span>2. 数据持久性和可靠性</span></a></h3>
+<p>自动将剩余的一个节点设为Leader可能会影响数据的可靠性和持久性。</p>
+<ul>
+<li><strong>数据丢失风险</strong>：在双节点故障时，只有一个节点在线，意味着只有一个副本的数据。如果这个节点在短时间
+内再次发生故障，所有数据将丢失。</li>
+<li><strong>无法保证数据完整性</strong>：只有一个副本在线时，Kafka无法确认该副本包含所有已提交的数据，因为其他副
+本可能未能同步最新的数据。</li>
+</ul>
+<h3 id="_3-故障恢复和高可用性" tabindex="-1"><a class="header-anchor" href="#_3-故障恢复和高可用性"><span>3. 故障恢复和高可用性</span></a></h3>
+<p>确保系统在故障发生后的恢复能力和高可用性。</p>
+<ul>
+<li><strong>恢复策略</strong>：通过多数原则，Kafka可以确保在故障恢复后，仍然可以保持数据的一致性和完整性。一旦双节
+点故障的情况恢复，剩余的节点可以继续同步数据，确保数据的一致性。</li>
+<li><strong>高可用性</strong>：多数原则有助于防止在部分网络分区或节点故障的情况下出现多个Leader，保证系统的高可用性
+和一致性。</li>
+</ul>
+<h3 id="_4-集群分裂和-脑裂-问题" tabindex="-1"><a class="header-anchor" href="#_4-集群分裂和-脑裂-问题"><span>4. 集群分裂和“脑裂”问题</span></a></h3>
+<p>自动将剩余的一个节点设为Leader可能会导致集群分裂和“脑裂”问题。</p>
+<ul>
+<li><strong>“脑裂”风险</strong>：在分布式系统中，“脑裂”指的是集群分裂成多个部分，各部分都认为自己是唯一的Leader。通
+过多数原则，Kafka避免了这种情况，因为只有大多数副本在线时才能选举出新的Leader。</li>
+<li><strong>一致性保证</strong>：通过确保至少大多数副本在线，Kafka可以防止在网络分区或故障情况下出现不一致的数据状态。</li>
+</ul>
+<h3 id="解决双节点故障的策略" tabindex="-1"><a class="header-anchor" href="#解决双节点故障的策略"><span>解决双节点故障的策略</span></a></h3>
+<ol>
+<li><strong>快速故障恢复</strong>：在双节点故障时，尽快恢复故障节点，确保至少有大多数副本在线，从而使Kafka能够正
+常选举新的Leader并恢复服务。</li>
+<li><strong>监控和报警</strong>：设置监控和报警系统，及时发现和处理节点故障，确保集群的高可用性。</li>
+<li><strong>增加副本数量</strong>：在需要更高可用性和容错能力的场景中，可以增加副本数量。例如，将副本数量设置为5，
+以容忍最多2个节点故障。</li>
+</ol>
+<h3 id="核心代码示例-多数原则的实现" tabindex="-1"><a class="header-anchor" href="#核心代码示例-多数原则的实现"><span>核心代码示例：多数原则的实现</span></a></h3>
+<p>以下是Kafka选举新Leader的多数原则实现的核心代码示例：</p>
+<div class="language-java line-numbers-mode" data-highlighter="prismjs" data-ext="java" data-title="java"><pre v-pre class="language-java"><code><span class="line"><span class="token comment">// Partition.scala</span></span>
+<span class="line"><span class="token keyword">class</span> <span class="token class-name">Partition</span><span class="token punctuation">(</span>val topicPartition<span class="token operator">:</span> <span class="token class-name">TopicPartition</span><span class="token punctuation">,</span> val leader<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">,</span> val replicas<span class="token operator">:</span> <span class="token class-name">List</span><span class="token punctuation">[</span><span class="token class-name">Int</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">    val isr <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AtomicReference</span><span class="token punctuation">[</span><span class="token class-name">List</span><span class="token punctuation">[</span><span class="token class-name">Int</span><span class="token punctuation">]</span><span class="token punctuation">]</span><span class="token punctuation">(</span>replicas<span class="token punctuation">)</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">handleLeaderAndIsrRequest</span><span class="token punctuation">(</span>controllerId<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">,</span> leaderAndIsr<span class="token operator">:</span> <span class="token class-name">LeaderAndIsr</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>leader <span class="token operator">=</span> leaderAndIsr<span class="token punctuation">.</span>leader</span>
+<span class="line">        <span class="token keyword">this</span><span class="token punctuation">.</span>isr<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>leaderAndIsr<span class="token punctuation">.</span>isr<span class="token punctuation">)</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">maybeShrinkIsr</span><span class="token punctuation">(</span>replicaId<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val currentIsr <span class="token operator">=</span> isr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span>currentIsr<span class="token punctuation">.</span><span class="token function">contains</span><span class="token punctuation">(</span>replicaId<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            isr<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>currentIsr<span class="token punctuation">.</span><span class="token function">filterNot</span><span class="token punctuation">(</span>_ <span class="token operator">==</span> replicaId<span class="token punctuation">)</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"></span>
+<span class="line">    def <span class="token function">maybeExpandIsr</span><span class="token punctuation">(</span>replicaId<span class="token operator">:</span> <span class="token class-name">Int</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token class-name">Unit</span> <span class="token operator">=</span> <span class="token punctuation">{</span></span>
+<span class="line">        val currentIsr <span class="token operator">=</span> isr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>currentIsr<span class="token punctuation">.</span><span class="token function">contains</span><span class="token punctuation">(</span>replicaId<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span></span>
+<span class="line">            isr<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>replicaId <span class="token operator">::</span> <span class="token function">currentIsr</span><span class="token punctuation">)</span></span>
+<span class="line">        <span class="token punctuation">}</span></span>
+<span class="line">    <span class="token punctuation">}</span></span>
+<span class="line"><span class="token punctuation">}</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div><div class="line-number"></div></div></div><h3 id="总结" tabindex="-1"><a class="header-anchor" href="#总结"><span>总结</span></a></h3>
+<ul>
+<li><strong>数据一致性和可靠性</strong>：通过多数原则，Kafka可以确保数据的一致性和可靠性，避免数据丢失和不一致的风险。</li>
+<li><strong>高可用性和恢复能力</strong>：多数原则有助于Kafka在故障恢复后保持高可用性和一致性。</li>
+<li><strong>防止“脑裂”</strong>：多数原则防止了在部分节点故障或网络分区时出现集群分裂和“脑裂”问题。</li>
+</ul>
+<p>因此，在双节点故障的情况下，不将剩余的一个节点自动设为Leader是为了确保Kafka集群的数据一致性、可靠性
+和高可用性。</p>
+</div></template>
+
+
