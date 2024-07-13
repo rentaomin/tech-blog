@@ -1,0 +1,135 @@
+<template><div><h1 id="redis-高级数据结构和模块介绍" tabindex="-1"><a class="header-anchor" href="#redis-高级数据结构和模块介绍"><span>Redis 高级数据结构和模块介绍</span></a></h1>
+<p>Redis 不仅支持基本的数据结构（如字符串、哈希、列表、集合和有序集合），还提供了一些高级数据结构和模块，
+扩展了它的功能，能够满足更多复杂的应用需求。以下是 Redis 的一些高级数据结构和模块：</p>
+<h3 id="高级数据结构" tabindex="-1"><a class="header-anchor" href="#高级数据结构"><span>高级数据结构</span></a></h3>
+<h4 id="_1-hyperloglog" tabindex="-1"><a class="header-anchor" href="#_1-hyperloglog"><span>1. HyperLogLog</span></a></h4>
+<ul>
+<li><strong>用途</strong>：用于基数统计，例如计算唯一用户数、唯一 IP 数等。</li>
+<li><strong>特点</strong>：占用内存固定且小（通常为 12KB），适用于近似基数统计，允许少量误差。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>PFADD key element [element ...]</code>：添加元素到 HyperLogLog。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">PFADD myhll <span class="token string">"foo"</span> <span class="token string">"bar"</span> <span class="token string">"zap"</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>PFCOUNT key [key ...]</code>：返回 HyperLogLog 中唯一元素的近似基数。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">PFCOUNT myhll</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>PFMERGE destkey sourcekey [sourcekey ...]</code>：将多个 HyperLogLog 合并为一个。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">PFMERGE myhll2 myhll1 myhll</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+<h4 id="_2-bitmaps" tabindex="-1"><a class="header-anchor" href="#_2-bitmaps"><span>2. Bitmaps</span></a></h4>
+<ul>
+<li><strong>用途</strong>：用于处理位级别的数据操作，例如用户活跃状态、签到系统等。</li>
+<li><strong>特点</strong>：可以将字符串看作二进制位数组，进行位操作。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>SETBIT key offset value</code>：设置字符串 key 的 offset 处的位值。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">SETBIT mykey <span class="token number">7</span> <span class="token number">1</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>GETBIT key offset</code>：获取字符串 key 的 offset 处的位值。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">GETBIT mykey <span class="token number">7</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>BITCOUNT key [start end]</code>：计算字符串中值为 1 的位的数量。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">BITCOUNT mykey</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+<h4 id="_3-geospatial" tabindex="-1"><a class="header-anchor" href="#_3-geospatial"><span>3. Geospatial</span></a></h4>
+<ul>
+<li><strong>用途</strong>：用于存储和操作地理空间数据，例如位置存储、距离计算、附近查询等。</li>
+<li><strong>特点</strong>：提供专门的命令来处理经纬度信息。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>GEOADD key longitude latitude member [longitude latitude member ...]</code>：
+添加地理空间元素。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">GEOADD mygeo <span class="token number">13.361389</span> <span class="token number">38.115556</span> <span class="token string">"Palermo"</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>GEODIST key member1 member2 [unit]</code>：计算两个地理空间元素之间的距离。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">GEODIST mygeo <span class="token string">"Palermo"</span> <span class="token string">"Catania"</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div><ul>
+<li><code v-pre>GEORADIUS key longitude latitude radius unit [WITHCOORD] [WITHDIST]  [WITHHASH] [COUNT count] [ASC|DESC] [STORE key] [STOREDIST key]</code>：查询指定范围
+内的地理空间元素。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">GEORADIUS mygeo <span class="token number">15</span> <span class="token number">37</span> <span class="token number">200</span> km</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="模块" tabindex="-1"><a class="header-anchor" href="#模块"><span>模块</span></a></h3>
+<p>Redis 模块是扩展 Redis 功能的一种方式，允许用户根据需要添加新的数据类型和命令。以下是一些常见
+的 Redis 模块：</p>
+<h4 id="_1-redisjson" tabindex="-1"><a class="header-anchor" href="#_1-redisjson"><span>1. RedisJSON</span></a></h4>
+<ul>
+<li><strong>用途</strong>：用于存储和操作 JSON 数据。</li>
+<li><strong>特点</strong>：支持对 JSON 文档的部分更新和查询，提供丰富的命令集。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>JSON.SET key path value</code>：设置 JSON 文档的某个路径的值。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">JSON.SET myjson <span class="token builtin class-name">.</span> <span class="token string">'{"name":"John", "age":30}'</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>JSON.GET key [path]</code>：获取 JSON 文档或其某个路径的值。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">JSON.GET myjson .name</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+<h4 id="_2-redissearch" tabindex="-1"><a class="header-anchor" href="#_2-redissearch"><span>2. RedisSearch</span></a></h4>
+<ul>
+<li><strong>用途</strong>：提供全文搜索和二次过滤功能。</li>
+<li><strong>特点</strong>：支持索引文本字段、数字字段和地理位置字段，提供全文搜索、高亮、自动完成等功能。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>FT.CREATE index [ON HASH|JSON] SCHEMA field1 type1 [OPTIONS] field2 type2 [OPTIONS] ...</code>：创建索引。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">FT.CREATE myindex ON HASH SCHEMA title TEXT WEIGHT <span class="token number">5.0</span> body TEXT url TEXT</span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>FT.SEARCH index query [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]  [WITHPAYLOADS] [WITHSORTKEYS] [FILTER field min max] [GEOFILTER field lon  lat radius m|km|mi|ft] [INKEYS num key ...] [INFIELDS num field ...]  [RETURN num field ...] [SUMMARIZE [FIELDS field ...] [FRAGS num] [LEN num] [SEPARATOR sep]] [HIGHLIGHT [FIELDS field ...] [TAGS open close]] [SLOP slop]  [INORDER] [LANGUAGE lang] [EXPANDER expander] [SCORER scorer] [EXPLAINSCORE]  [PAYLOAD payload] [SORTBY field [ASC|DESC]] [LIMIT offset num]</code>：搜索索引。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">FT.SEARCH myindex <span class="token string">"hello world"</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+<h4 id="_3-redisgraph" tabindex="-1"><a class="header-anchor" href="#_3-redisgraph"><span>3. RedisGraph</span></a></h4>
+<ul>
+<li><strong>用途</strong>：提供图数据库功能。</li>
+<li><strong>特点</strong>：使用 Cypher 查询语言，支持高效的图遍历和路径查询。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>GRAPH.QUERY graph query [timeout]</code>：执行图查询。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">GRAPH.QUERY social <span class="token string">"MATCH (a:person)-[:friend]->(b:person) RETURN a.name, b.name"</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+<h4 id="_4-redistimeseries" tabindex="-1"><a class="header-anchor" href="#_4-redistimeseries"><span>4. RedisTimeSeries</span></a></h4>
+<ul>
+<li><strong>用途</strong>：用于存储和操作时间序列数据。</li>
+<li><strong>特点</strong>：支持时间序列数据的插入、查询、聚合和压缩。</li>
+<li><strong>常用命令</strong>：
+<ul>
+<li><code v-pre>TS.CREATE key [RETENTION retention] [LABELS label value ...]</code>：创建时间序列。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">TS.CREATE temperature:3:11 RETENTION <span class="token number">3600</span> LABELS sensor_id <span class="token number">3</span> area_id <span class="token number">11</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>TS.ADD key timestamp value [RETENTION retention] [LABELS label value ...]</code>：
+添加数据点到时间序列。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">TS.ADD temperature:3:11 <span class="token number">1609459200000</span> <span class="token number">23.1</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+<li><code v-pre>TS.RANGE key fromTimestamp toTimestamp [FILTER_BY_TS timestamp ...]  [FILTER_BY_VALUE min max] [COUNT count] [ALIGN timestamp] [AGGREGATION aggregationType  timeBucket]</code>：查询时间范围内的数据点。<div class="language-bash line-numbers-mode" data-highlighter="prismjs" data-ext="sh" data-title="sh"><pre v-pre class="language-bash"><code><span class="line">TS.RANGE temperature:3:11 <span class="token number">1609459200000</span> <span class="token number">1609545600000</span></span>
+<span class="line"></span></code></pre>
+<div class="line-numbers" aria-hidden="true" style="counter-reset:line-number 0"><div class="line-number"></div></div></div></li>
+</ul>
+</li>
+</ul>
+<h3 id="结论" tabindex="-1"><a class="header-anchor" href="#结论"><span>结论</span></a></h3>
+<p>通过掌握 Redis 的高级数据结构和模块，架构师可以利用 Redis 实现更复杂的数据操作和应用场景。例如，使用
+HyperLogLog 进行基数统计，使用 Bitmaps 实现用户行为记录，使用 Geospatial 进行地理位置计算，使用
+RedisJSON 存储和操作 JSON 数据，使用 RedisSearch 实现全文搜索，使用 RedisGraph 构建图数据库，
+使用 RedisTimeSeries 处理时间序列数据。通过这些高级功能，Redis 可以满足更多复杂的应用需求，提升系统
+的性能和可靠性。</p>
+</div></template>
+
+
